@@ -1,6 +1,4 @@
 #authentication   signin profile tab
-
-
 from django.contrib.auth.models import User
 from rest_framework import serializers
 from .models import Listing, ListingImage, ContactMessage, UserActivity, CartItem, Cart, Profile, SparePart
