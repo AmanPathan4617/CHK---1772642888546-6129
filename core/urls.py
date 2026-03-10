@@ -13,6 +13,7 @@ from .billing_views import (
 )
 
 urlpatterns = [
+    
     # Admin Analytics Dashboard
     path('analytics/', admin_analytics_view, name='admin_analytics'),
     
