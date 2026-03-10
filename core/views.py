@@ -28,6 +28,7 @@ from django.conf import settings
 from django.core.files.storage import FileSystemStorage
 from django.http import HttpResponse, HttpResponseBadRequest
 from django.urls import reverse
+from .email_utils import send_booking_confirmation_email
 
 # --- Chatbot: Load local pretrained model and vectorizer (if available) ---
 _CHATBOT_READY = False
@@ -1190,6 +1191,45 @@ Booking Date: {data.get('booking_date', 'N/A')}
             subject=f"Service Booking - {data.get('car_make')} {data.get('car_model')} ({data.get('service_type').replace('_', ' ').title()})",
             message=message_text
         )
+
+        try:
+            service_type_label = (data.get('service_type') or '').replace('_', ' ').title()
+            subject = f"AutoPro Elite: Service Booking Confirmation ({service_type_label})"
+            to_email = data.get('email')
+            customer_name = data.get('name') or 'Customer'
+            text_message = (
+                f"Hello {customer_name},\n\n"
+                f"Your service/repair slot booking request has been received.\n\n"
+                f"Vehicle: {data.get('car_make')} {data.get('car_model')} ({data.get('car_year')})\n"
+                f"Registration: {data.get('reg_number', 'Not provided')}\n"
+                f"City: {data.get('city')}\n"
+                f"Service Type: {service_type_label}\n"
+                f"Preferred Date: {data.get('preferred_date')}\n"
+                f"Preferred Time: {data.get('preferred_time')}\n\n"
+                f"We will contact you shortly to confirm the slot.\n\n"
+                f"Thanks,\nAutoPro Elite"
+            )
+            html_message = (
+                f"<p>Hello {customer_name},</p>"
+                f"<p>Your service/repair slot booking request has been received.</p>"
+                f"<p><strong>Vehicle:</strong> {data.get('car_make')} {data.get('car_model')} ({data.get('car_year')})<br>"
+                f"<strong>Registration:</strong> {data.get('reg_number', 'Not provided')}<br>"
+                f"<strong>City:</strong> {data.get('city')}<br>"
+                f"<strong>Service Type:</strong> {service_type_label}<br>"
+                f"<strong>Preferred Date:</strong> {data.get('preferred_date')}<br>"
+                f"<strong>Preferred Time:</strong> {data.get('preferred_time')}</p>"
+                f"<p>We will contact you shortly to confirm the slot.</p>"
+                f"<p>Thanks,<br><strong>AutoPro Elite</strong></p>"
+            )
+            send_booking_confirmation_email(
+                booking_type='service',
+                to_email=to_email,
+                subject=subject,
+                text_message=text_message,
+                html_message=html_message,
+            )
+        except Exception as e:
+            print(f"Service booking email failed: {str(e)}")
         
         # Log activity if user is authenticated
         if request.user.is_authenticated:
@@ -1268,6 +1308,42 @@ Booking Date: {data.get('booking_date', 'N/A')}
             subject=f"Test Drive Booking - {data.get('car_name')}",
             message=message_text
         )
+
+        try:
+            subject = f"AutoPro Elite: Test Drive Booking Confirmation"
+            to_email = data.get('email')
+            customer_name = data.get('name') or 'Customer'
+            text_message = (
+                f"Hello {customer_name},\n\n"
+                f"Your test drive booking request has been received.\n\n"
+                f"Car: {data.get('car_name')}\n"
+                f"Price: ₹{data.get('car_price', 'N/A')}\n"
+                f"City: {data.get('city')}\n"
+                f"Preferred Date: {data.get('preferred_date')}\n"
+                f"Preferred Time: {data.get('preferred_time')}\n\n"
+                f"We will contact you shortly to confirm the test drive.\n\n"
+                f"Thanks,\nAutoPro Elite"
+            )
+            html_message = (
+                f"<p>Hello {customer_name},</p>"
+                f"<p>Your test drive booking request has been received.</p>"
+                f"<p><strong>Car:</strong> {data.get('car_name')}<br>"
+                f"<strong>Price:</strong> ₹{data.get('car_price', 'N/A')}<br>"
+                f"<strong>City:</strong> {data.get('city')}<br>"
+                f"<strong>Preferred Date:</strong> {data.get('preferred_date')}<br>"
+                f"<strong>Preferred Time:</strong> {data.get('preferred_time')}</p>"
+                f"<p>We will contact you shortly to confirm the test drive.</p>"
+                f"<p>Thanks,<br><strong>AutoPro Elite</strong></p>"
+            )
+            send_booking_confirmation_email(
+                booking_type='test_drive',
+                to_email=to_email,
+                subject=subject,
+                text_message=text_message,
+                html_message=html_message,
+            )
+        except Exception as e:
+            print(f"Test drive booking email failed: {str(e)}")
         
         # Log activity if user is authenticated
         if request.user.is_authenticated:
@@ -1919,6 +1995,32 @@ def chatbot_reply(request):
     if not user_message:
         return Response({"detail": "'message' is required"}, status=status.HTTP_400_BAD_REQUEST)
 
+    # Handle simple greetings/thanks deterministically (no model call, no topic restriction)
+    try:
+        msg_norm = re.sub(r"\s+", " ", (user_message or "").strip().lower())
+        msg_compact = re.sub(r"[^a-z0-9\s]", "", msg_norm)
+        greet_set = {"hi", "hello", "hey", "hii", "hiii", "hola", "good morning", "good afternoon", "good evening"}
+        thanks_set = {"thanks", "thank you", "thx", "ty", "thankyou", "thank u"}
+        bye_set = {"bye", "goodbye", "see you", "see ya", "cya"}
+
+        if msg_compact in greet_set:
+            return Response({
+                "reply": "Hello! I'm your AutoPro assistant. Ask me about cars, spare parts, service bookings, or our listings.",
+                "provider": "static",
+            })
+        if msg_compact in thanks_set:
+            return Response({
+                "reply": "You're welcome! Anything else I can help you with about cars or AutoPro services?",
+                "provider": "static",
+            })
+        if msg_compact in bye_set:
+            return Response({
+                "reply": "Goodbye! If you need help with cars, service, or parts, come back anytime.",
+                "provider": "static",
+            })
+    except Exception:
+        pass
+
     # Use local QnA model from backend/qna/ with spell-correction
     qna_status = "ready" if _CHATBOT_READY else ("error: " + str(_CHATBOT_ERR or "not_loaded"))
 
@@ -1954,7 +2056,13 @@ def chatbot_reply(request):
         # Optional fallback to local model if available and not disabled
         disable_local = getattr(settings, "CHATBOT_DISABLE_LOCAL", True)
         if disable_local or not (_CHATBOT_READY and _vectorizer is not None and _model is not None):
-            return Response({"detail": f"Gemini error: {e}"}, status=status.HTTP_502_BAD_GATEWAY)
+            msg = str(e)
+            if "403" in msg and "reported as leaked" in msg:
+                return Response(
+                    {"detail": "AI assistant is unavailable: API key is invalid/blocked. Please update GOOGLE_API_KEY."},
+                    status=status.HTTP_502_BAD_GATEWAY,
+                )
+            return Response({"detail": "AI assistant is temporarily unavailable. Please try again later."}, status=status.HTTP_502_BAD_GATEWAY)
 
         corrected = _simple_spell_correct(user_message)
         try:
