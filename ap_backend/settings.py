@@ -2,8 +2,6 @@ import os
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-
-
 def _load_dotenv_if_present() -> None:
     env_path = BASE_DIR / ".env"
     if not env_path.exists():
